@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Tetris Date Puzzle - Scrollable Tray</title>
+<style>
+    canvas {
+        border: 2px solid black;
+    }
+    body {
+        user-select: none;
+    }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="720" height="420"></canvas>
+
+<script>
+const CELL_SIZE = 60;
+const BOARD_ROWS = 7;
+const BOARD_COLS = 7;
+const SIDEBAR_WIDTH = 300;
+
+const WHITE = "#FFFFFF";
+const BLACK = "#000000";
+const RED = "#DC143C";
+const GREEN_ALPHA = "rgba(144,238,144,0.5)";
+const YELLOW_ALPHA = "rgba(255,255,0,0.5)";
+
+const boardTemplate = [
+    ["Jan", "Feb", "Mar", "Apr", "May", "Jun", null],
+    ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", null],
+    [1,2,3,4,5,6,7],
+    [8,9,10,11,12,13,14],
+    [15,16,17,18,19,20,21],
+    [22,23,24,25,26,27,28],
+    [29,30,31,null,null,null,null]
+];
+
+const today = new Date();
+const todayDay = today.getDate();
+const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const todayMonth = monthNames[today.getMonth()];
+
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+let occupancyBoard = Array.from({length: BOARD_ROWS}, ()=>Array(BOARD_COLS).fill("empty"));
+
+class Block {
+    constructor(coords, color, name, sidebarIndex){
+        this.shape = JSON.parse(JSON.stringify(coords));
+        this.position = {x:0, y:0};
+        this.name = name;
+        this.color = color;
+        this.dragging = false;
+        this.dragOffset = {x:0,y:0};
+        this.sidebarIndex = sidebarIndex;
+        this.sidebarPos = {x: CELL_SIZE*BOARD_COLS+50, y: 20+sidebarIndex*70};
+        this.placedOnBoard = false;
+        this.flashTimer = 0;
+    }
+
+    rotate(){ this.shape = this.shape.map(c=>({x:c.y, y:-c.x})); }
+    flipH(){ this.shape = this.shape.map(c=>({x:-c.x, y:c.y})); }
+    flipV(){ this.shape = this.shape.map(c=>({x:c.x, y:-c.y})); }
+
+    getAbsoluteCoords(pos=this.position){
+        return this.shape.map(c=>({x:c.x+pos.x, y:c.y+pos.y}));
+    }
+
+    draw(offsetY=0){
+        let baseX = this.placedOnBoard ? this.position.x*CELL_SIZE : this.sidebarPos.x;
+        let baseY = this.placedOnBoard ? this.position.y*CELL_SIZE : this.sidebarPos.y + offsetY;
+        if(this.flashTimer>0){
+            ctx.fillStyle = GREEN_ALPHA;
+            this.getAbsoluteCoords(this.placedOnBoard?this.position:{x:0,y:0}).forEach(c=>{
+                let px = baseX + (c.x-(this.placedOnBoard?this.position.x:0))*CELL_SIZE;
+                let py = baseY + (c.y-(this.placedOnBoard?this.position.y:0))*CELL_SIZE;
+                ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+            });
+            this.flashTimer--;
+        }
+        ctx.fillStyle = this.color;
+        ctx.strokeStyle = BLACK;
+        ctx.lineWidth = 2;
+        this.shape.forEach(c=>{
+            let px = baseX + c.x*CELL_SIZE;
+            let py = baseY + c.y*CELL_SIZE;
+            ctx.fillRect(px, py, CELL_SIZE, CELL_SIZE);
+            ctx.strokeRect(px, py, CELL_SIZE, CELL_SIZE);
+        });
+    }
+}
+
+const blocks = [
+    new Block([{x:0,y:0},{x:0,y:1},{x:0,y:2},{x:0,y:3},{x:1,y:3}],"orange","Block1",0),
+    new Block([{x:0,y:0},{x:1,y:0},{x:0,y:1},{x:0,y:2},{x:1,y:2}],"teal","Block2",1),
+    new Block([{x:0,y:0},{x:1,y:0},{x:2,y:0},{x:0,y:1},{x:1,y:1},{x:2,y:1}],"purple","Block3",2),
+    new Block([{x:0,y:0},{x:1,y:0},{x:0,y:1},{x:1,y:1},{x:2,y:1}],"pink","Block4",3),
+    new Block([{x:0,y:0},{x:1,y:0},{x:1,y:1},{x:1,y:2},{x:2,y:2}],"green","Block5",4),
+    new Block([{x:0,y:0},{x:0,y:1},{x:0,y:2},{x:1,y:2},{x:1,y:3}],"red","Block6",5),
+    new Block([{x:0,y:0},{x:1,y:0},{x:2,y:0},{x:2,y:1},{x:2,y:2}],"blue","Block7",6),
+    new Block([{x:0,y:0},{x:0,y:1},{x:0,y:2},{x:0,y:3},{x:1,y:2}],"gold","Block8",7)
+];
+
+let selectedBlock = null;
+let scrollOffset = 0;
+let won = false;
+
+// --- Helpers ---
+function drawBoard(){
+    ctx.fillStyle = WHITE;
+    ctx.fillRect(0,0,CELL_SIZE*BOARD_COLS,CELL_SIZE*BOARD_ROWS);
+    ctx.strokeStyle = BLACK;
+    ctx.lineWidth=2;
+    for(let y=0;y<BOARD_ROWS;y++){
+        for(let x=0;x<BOARD_COLS;x++){
+            ctx.strokeRect(x*CELL_SIZE, y*CELL_SIZE, CELL_SIZE, CELL_SIZE);
+            let val = boardTemplate[y][x];
+            if(val!==null){
+                ctx.fillStyle=BLACK;
+                ctx.font="16px Arial";
+                ctx.fillText(val, x*CELL_SIZE+5, y*CELL_SIZE+20);
+            }
+        }
+    }
+}
+
+function highlightTodaySquares(){
+    let coords=[];
+    for(let x=0;x<BOARD_COLS;x++){
+        for(let y=0;y<2;y++){
+            if(boardTemplate[y][x]===todayMonth) coords.push({x,y});
+        }
+    }
+    for(let y=2;y<BOARD_ROWS;y++){
+        for(let x=0;x<BOARD_COLS;x++){
+            if(boardTemplate[y][x]===todayDay) coords.push({x,y});
+        }
+    }
+    ctx.fillStyle=YELLOW_ALPHA;
+    coords.forEach(c=>ctx.fillRect(c.x*CELL_SIZE,c.y*CELL_SIZE,CELL_SIZE,CELL_SIZE));
+}
+
+function canPlace(block,pos){
+    return block.getAbsoluteCoords(pos).every(c=>{
+        return c.x>=0 && c.x<BOARD_COLS && c.y>=0 && c.y<BOARD_ROWS && occupancyBoard[c.y][c.x]==="empty";
+    });
+}
+
+function placeBlock(block,pos){
+    block.getAbsoluteCoords(pos).forEach(c=>occupancyBoard[c.y][c.x]=block.name);
+    block.position = pos;
+    block.placedOnBoard = true;
+    block.flashTimer = 10;
+}
+
+function removeBlock(block){
+    for(let y=0;y<BOARD_ROWS;y++){
+        for(let x=0;x<BOARD_COLS;x++){
+            if(occupancyBoard[y][x]===block.name) occupancyBoard[y][x]="empty";
+        }
+    }
+    block.placedOnBoard = false;
+}
+
+function checkWin(){
+    let todayCoords=[];
+    for(let x=0;x<BOARD_COLS;x++){
+        for(let y=0;y<2;y++){
+            if(boardTemplate[y][x]===todayMonth) todayCoords.push({x,y});
+        }
+    }
+    for(let y=2;y<BOARD_ROWS;y++){
+        for(let x=0;x<BOARD_COLS;x++){
+            if(boardTemplate[y][x]===todayDay) todayCoords.push({x,y});
+        }
+    }
+    for(let y=0;y<BOARD_ROWS;y++){
+        for(let x=0;x<BOARD_COLS;x++){
+            if(occupancyBoard[y][x]==="empty" && boardTemplate[y][x]!==null){
+                if(!todayCoords.some(tc=>tc.x===x && tc.y===y)) return false;
+            }
+        }
+    }
+    return true;
+}
+
+// --- Mouse events ---
+canvas.addEventListener("mousedown",e=>{
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    for(let blk of blocks.slice().reverse()){
+        let baseX = blk.placedOnBoard ? blk.position.x*CELL_SIZE : blk.sidebarPos.x;
+        let baseY = blk.placedOnBoard ? blk.position.y*CELL_SIZE : blk.sidebarPos.y+scrollOffset;
+        for(let c of blk.shape){
+            let px = baseX + c.x*CELL_SIZE;
+            let py = baseY + c.y*CELL_SIZE;
+            if(mx>=px && mx<=px+CELL_SIZE && my>=py && my<=py+CELL_SIZE){
+                selectedBlock = blk;
+                blk.dragging = true;
+                blk.dragOffset = {x: (mx-px)/CELL_SIZE, y:(my-py)/CELL_SIZE};
+                if(blk.placedOnBoard) removeBlock(blk);
+                return;
+            }
+        }
+    }
+});
+
+canvas.addEventListener("mouseup", e=>{
+    if(selectedBlock && selectedBlock.dragging){
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        let gx = Math.round((mx/CELL_SIZE) - selectedBlock.dragOffset.x);
+        let gy = Math.round((my/CELL_SIZE) - selectedBlock.dragOffset.y);
+        if(canPlace(selectedBlock,{x:gx,y:gy})){
+            placeBlock(selectedBlock,{x:gx,y:gy});
+        }
+        selectedBlock.dragging=false;
+        selectedBlock=null;
+    }
+});
+
+window.addEventListener("mousemove", e=>{
+    if(selectedBlock && selectedBlock.dragging){
+        const rect = canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        selectedBlock.sidebarPos = {x: mx-selectedBlock.dragOffset.x*CELL_SIZE, y: my-selectedBlock.dragOffset.y*CELL_SIZE};
+    }
+});
+
+// --- Scroll wheel ---
+canvas.addEventListener("wheel", e=>{
+    scrollOffset += e.deltaY*0.5;
+    const maxScroll = Math.max(0, blocks.length*70 + 20 - canvas.height);
+    scrollOffset = Math.min(0, scrollOffset);
+    scrollOffset = Math.max(-maxScroll, scrollOffset);
+});
+
+// --- Keyboard ---
+window.addEventListener("keydown", e=>{
+    if(selectedBlock){
+        if(e.key==="r") selectedBlock.rotate();
+        if(e.key==="h") selectedBlock.flipH();
+        if(e.key==="v") selectedBlock.flipV();
+    }
+});
+
+// --- Game loop ---
+function gameLoop(){
+    ctx.fillStyle=WHITE;
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    drawBoard();
+    highlightTodaySquares();
+
+    if(selectedBlock && selectedBlock.dragging){
+        ctx.fillStyle=GREEN_ALPHA;
+        const gx = Math.round((selectedBlock.sidebarPos.x)/CELL_SIZE);
+        const gy = Math.round((selectedBlock.sidebarPos.y)/CELL_SIZE);
+        selectedBlock.getAbsoluteCoords({x:gx,y:gy}).forEach(c=>{
+            ctx.fillRect(c.x*CELL_SIZE,c.y*CELL_SIZE,CELL_SIZE,CELL_SIZE);
+        });
+    }
+
+    blocks.forEach(blk=>blk.draw(scrollOffset));
+
+    if(checkWin()){
+        won=true;
+        ctx.fillStyle=RED;
+        ctx.font="80px Arial";
+        ctx.textAlign="center";
+        ctx.fillText("YOU WIN!", canvas.width/2, canvas.height/2);
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+</body>
+</html>

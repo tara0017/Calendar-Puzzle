@@ -22,6 +22,10 @@ const TRAY_X = COLS * CELL + 40;
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
+/* ===================== TIMER ===================== */
+const startTime = Date.now();
+let endTime = null;
+
 /* ===================== DATE ===================== */
 const today = new Date();
 const todayDay = today.getDate();
@@ -248,6 +252,13 @@ function checkWin(){
   return true;
 }
 
+function formatTime(ms){
+  const total=Math.floor(ms/1000);
+  const min=Math.floor(total/60);
+  const sec=total%60;
+  return `${String(min).padStart(2,"0")}:${String(sec).padStart(2,"0")}`;
+}
+
 /* ===================== LOOP ===================== */
 function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
@@ -258,12 +269,22 @@ function loop(){
   blocks.forEach(b=>b.draw());
 
   if(checkWin()){
-    ctx.fillStyle="rgba(0,0,0,0.7)";
+    if(!endTime) endTime = Date.now();
+    ctx.fillStyle="rgba(0,0,0,0.75)";
     ctx.fillRect(0,0,canvas.width,canvas.height);
+
     ctx.fillStyle="red";
     ctx.font="90px Arial Black";
     ctx.textAlign="center";
-    ctx.fillText("YOU WIN!",canvas.width/2,canvas.height/2);
+    ctx.fillText("YOU WIN!",canvas.width/2,canvas.height/2-20);
+
+    ctx.fillStyle="white";
+    ctx.font="36px Arial";
+    ctx.fillText(
+      `Solved in ${formatTime(endTime-startTime)}`,
+      canvas.width/2,
+      canvas.height/2+40
+    );
   }
 
   requestAnimationFrame(loop);

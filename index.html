@@ -68,7 +68,13 @@ class Block{
     this.shape=shape; this.color=color; this.name="B"+index;
     this.pos={x:0,y:0}; this.placed=false;
     this.dragging=false; this.dragPixel={x:0,y:0}; this.dragOffset={x:0,y:0};
-    this.trayPos={x:TRAY_X,y:30+index*55};
+    // Adjusted tray layout: horizontal and vertical spacing
+    const cols=2; // number of columns in tray
+    const spacingX=130, spacingY=80;
+    this.trayPos={
+      x: TRAY_X + (index%cols)*spacingX,
+      y: 30 + Math.floor(index/cols)*spacingY
+    };
   }
   normalize(){
     const minX=Math.min(...this.shape.map(c=>c.x));

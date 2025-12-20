@@ -68,13 +68,9 @@ class Block{
     this.shape=shape; this.color=color; this.name="B"+index;
     this.pos={x:0,y:0}; this.placed=false;
     this.dragging=false; this.dragPixel={x:0,y:0}; this.dragOffset={x:0,y:0};
-    // Adjusted tray layout: horizontal and vertical spacing
-    const cols=2; // number of columns in tray
-    const spacingX=130, spacingY=80;
-    this.trayPos={
-      x: TRAY_X + (index%cols)*spacingX,
-      y: 30 + Math.floor(index/cols)*spacingY
-    };
+    // Tray layout: horizontal and vertical spacing
+    const cols=2, spacingX=130, spacingY=80;
+    this.trayPos={x:TRAY_X+(index%cols)*spacingX, y:70+Math.floor(index/cols)*spacingY};
   }
   normalize(){
     const minX=Math.min(...this.shape.map(c=>c.x));
@@ -85,8 +81,15 @@ class Block{
   rotate(){ this.shape=this.shape.map(c=>({x:c.y,y:-c.x})); this.normalize(); }
   flipH(){ this.shape=this.shape.map(c=>({x:-c.x,y:c.y})); this.normalize(); }
   flipV(){ this.shape=this.shape.map(c=>({x:c.x,y:-c.y})); this.normalize(); }
-  draw(){
-    const base=this.dragging?this.dragPixel:(this.placed?{x:this.pos.x*CELL,y:this.pos.y*CELL}:this.trayPos);
+  draw(base=this.dragging?this.dragPixel:{x:this.pos.x*CELL,y:this.pos.y*CELL}){
+    ctx.fillStyle=this.color; ctx.strokeStyle="black"; ctx.lineWidth=2;
+    for(const c of this.shape){
+      ctx.fillRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
+      ctx.strokeRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
+    }
+  }
+  drawTray(){
+    const base=this.trayPos;
     ctx.fillStyle=this.color; ctx.strokeStyle="black"; ctx.lineWidth=2;
     for(const c of this.shape){
       ctx.fillRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
@@ -107,24 +110,27 @@ const blocks=[
   new Block([{x:0,y:0},{x:0,y:1},{x:0,y:2},{x:0,y:3},{x:1,y:2}],"gold",8)
 ];
 
-/* ===================== DRAW ===================== */
+/* ===================== DRAW BOARD ===================== */
 function drawBoard(){
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
     const v=boardTemplate[y][x];
     if(v!==null){
-      ctx.fillStyle="black"; ctx.font="16px Arial";
-      ctx.fillText(v,x*CELL+5,y*CELL+18);
+      ctx.fillStyle="black"; ctx.font="16px Arial"; ctx.textAlign="left"; ctx.textBaseline="top";
+      ctx.fillText(v,x*CELL+5,y*CELL+5);
     }
   }
 }
+
 function highlightToday(){
   ctx.fillStyle="rgba(255,215,0,0.35)";
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)
     if(boardTemplate[y][x]===todayMonth||boardTemplate[y][x]===todayDay)
       ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
 }
+
 function drawPreview(block){
+  if(!block.dragging) return;
   const gx=Math.round(block.dragPixel.x/CELL-block.dragOffset.x);
   const gy=Math.round(block.dragPixel.y/CELL-block.dragOffset.y);
   const valid=block.cells({x:gx,y:gy}).every(c=>
@@ -138,56 +144,67 @@ function drawPreview(block){
 
 /* ===================== INPUT ===================== */
 let active=null;
-canvas.addEventListener("pointerdown",e=>{
+
+canvas.addEventListener("pointerdown", e=>{
   const r=canvas.getBoundingClientRect();
-  const mx=e.clientX-r.left,my=e.clientY-r.top;
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+
   for(const b of [...blocks].reverse()){
-    const base=b.placed?{x:b.pos.x*CELL,y:b.pos.y*CELL}:b.trayPos;
+    const base=b.placed ? {x: b.pos.x*CELL, y: b.pos.y*CELL} : b.trayPos;
     for(const c of b.shape){
-      const x=base.x+c.x*CELL,y=base.y+c.y*CELL;
-      if(mx>x&&mx<x+CELL&&my>y&&my<y+CELL){
-        active=b; b.dragging=true;
+      const x=base.x+c.x*CELL, y=base.y+c.y*CELL;
+      if(mx>x && mx<x+CELL && my>y && my<y+CELL){
+        active=b;
+        b.dragging=true;
         b.dragPixel={x:base.x,y:base.y};
-        b.dragOffset={x:(mx-x)/CELL,y:(my-y)/CELL};
-        if(b.placed){ b.cells().forEach(c=>board[c.y][c.x]=null); b.placed=false; }
+        b.dragOffset={x:(mx-x)/CELL, y:(my-y)/CELL};
+
+        if(b.placed){
+          b.cells().forEach(c=>board[c.y][c.x]=null);
+          b.placed=false;
+        }
         return;
       }
     }
   }
 });
-canvas.addEventListener("pointermove",e=>{
-  if(!active) return;
+
+canvas.addEventListener("pointermove", e=>{
+  if(!active || !active.dragging) return;
   const r=canvas.getBoundingClientRect();
   active.dragPixel={
     x:e.clientX-r.left-active.dragOffset.x*CELL,
     y:e.clientY-r.top-active.dragOffset.y*CELL
   };
 });
-canvas.addEventListener("pointerup",()=>{
+
+canvas.addEventListener("pointerup", ()=>{
   if(!active) return;
-  const gx=Math.round(active.dragPixel.x/CELL-active.dragOffset.x);
-  const gy=Math.round(active.dragPixel.y/CELL-active.dragOffset.y);
-  if(active.cells({x:gx,y:gy}).every(c=>
-    c.x>=0&&c.x<COLS&&c.y>=0&&c.y<ROWS&&board[c.y][c.x]==null
-  )){
+  const gx=Math.round(active.dragPixel.x/CELL - active.dragOffset.x);
+  const gy=Math.round(active.dragPixel.y/CELL - active.dragOffset.y);
+  const valid=active.cells({x:gx,y:gy}).every(c=>
+    c.x>=0 && c.x<COLS && c.y>=0 && c.y<ROWS && board[c.y][c.x]==null
+  );
+  if(valid){
     active.pos={x:gx,y:gy};
     active.cells().forEach(c=>board[c.y][c.x]=active.name);
     active.placed=true;
   }
-  active.dragging=false; active=null;
+  active.dragging=false;
+  active=null;
 });
-window.addEventListener("keydown",e=>{
+
+window.addEventListener("keydown", e=>{
   if(!active) return;
   if(e.key==="r") active.rotate();
   if(e.key==="h") active.flipH();
-  if(e.key==="v") active.flipV();
 });
 
 /* ===================== WIN ===================== */
 function checkWin(){
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)
-    if(boardTemplate[y][x]!=null&&board[y][x]==null &&
-       boardTemplate[y][x]!==todayMonth&&boardTemplate[y][x]!==todayDay)
+    if(boardTemplate[y][x]!=null && board[y][x]==null &&
+       boardTemplate[y][x]!==todayMonth && boardTemplate[y][x]!==todayDay)
       return false;
   return true;
 }
@@ -204,12 +221,29 @@ Streak: ${streak} day${streak===1?"":"s"}`;
 /* ===================== LOOP ===================== */
 function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  drawBoard(); highlightToday();
+
+  drawBoard();
+  highlightToday();
   if(active) drawPreview(active);
-  blocks.forEach(b=>b.draw());
+
+  // Instructions box (extended width)
+  ctx.fillStyle="#ffffcc";
+  ctx.fillRect(TRAY_X-10,10,300,50);
+  ctx.strokeStyle="black";
+  ctx.strokeRect(TRAY_X-10,10,300,50);
+  ctx.fillStyle="black"; ctx.font="16px Arial"; ctx.textAlign="left"; ctx.textBaseline="top";
+  ctx.fillText("Click R to rotate and H for horizontal flip", TRAY_X+5, 15);
+
+  // Draw tray and blocks
+  for(const b of blocks){
+    if(!b.placed && !b.dragging) b.drawTray();
+  }
+  for(const b of blocks){
+    if(b.placed || b.dragging) b.draw();
+  }
 
   ctx.fillStyle="black"; ctx.font="18px Arial";
-  ctx.fillText(`Streak: ${streak}`,TRAY_X,20);
+  ctx.fillText(`Streak: ${streak}`,TRAY_X,80);
 
   if(checkWin()){
     if(!endTime){
@@ -229,7 +263,6 @@ function loop(){
     ctx.fillText(`Solved in ${formatTime(endTime-startTime)}`,canvas.width/2,canvas.height/2-10);
     ctx.fillText(`Streak: ${streak} days`,canvas.width/2,canvas.height/2+30);
 
-    // Share button
     ctx.fillStyle="#1e90ff";
     ctx.fillRect(canvas.width/2-120,canvas.height/2+55,240,45);
     ctx.fillStyle="white";
@@ -239,21 +272,22 @@ function loop(){
 
   requestAnimationFrame(loop);
 }
-loop();
 
 /* ===================== SHARE CLICK ===================== */
-canvas.addEventListener("click",e=>{
+canvas.addEventListener("click", e=>{
   if(!endTime) return;
   const r=canvas.getBoundingClientRect();
   const x=e.clientX-r.left, y=e.clientY-r.top;
-  if(x>canvas.width/2-120&&x<canvas.width/2+120&&
-     y>canvas.height/2+55&&y<canvas.height/2+100){
+  if(x>canvas.width/2-120 && x<canvas.width/2+120 &&
+     y>canvas.height/2+55 && y<canvas.height/2+100){
     shareScore();
   }
 });
 
 /* ===================== MIDNIGHT RESET ===================== */
 setInterval(()=>{ if(todayKey()!==todayKeyStr) location.reload(); },60000);
+
+loop();
 </script>
 </body>
 </html>

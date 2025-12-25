@@ -13,44 +13,20 @@
 <canvas id="game" width="920" height="520"></canvas>
 
 <script>
-/* ===================== CONSTANTS ===================== */
 const CELL=60, ROWS=7, COLS=7;
 const BOARD_W=COLS*CELL;
 const TRAY_X=BOARD_W+40;
+const BTN_RADIUS=12;
+const BTN_SPACING=28;
 
 const canvas=document.getElementById("game");
 const ctx=canvas.getContext("2d");
 
-/* ===================== DATE / TIMER ===================== */
-const startTime=Date.now();
-let endTime=null;
-
-function todayKey(){ return new Date().toISOString().slice(0,10); }
-function formatTime(ms){
-  const s=Math.floor(ms/1000), m=Math.floor(s/60);
-  return `${String(m).padStart(2,"0")}:${String(s%60).padStart(2,"0")}`;
-}
-
-/* ===================== DAILY HISTORY ===================== */
-const history=JSON.parse(localStorage.getItem("datePuzzleHistory")||"{}");
-const todayKeyStr=todayKey();
-
-function calcStreak(){
-  let d=new Date(), s=0;
-  while(history[d.toISOString().slice(0,10)]){
-    s++; d.setDate(d.getDate()-1);
-  }
-  return s;
-}
-let streak=calcStreak();
-
-/* ===================== TODAY ===================== */
 const now=new Date();
 const todayDay=now.getDate();
 const months=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const todayMonth=months[now.getMonth()];
 
-/* ===================== BOARD ===================== */
 const boardTemplate=[
   ["Jan","Feb","Mar","Apr","May","Jun",null],
   ["Jul","Aug","Sep","Oct","Nov","Dec",null],
@@ -62,43 +38,121 @@ const boardTemplate=[
 ];
 let board=Array.from({length:ROWS},()=>Array(COLS).fill(null));
 
-/* ===================== BLOCK ===================== */
 class Block{
   constructor(shape,color,index){
-    this.shape=shape; this.color=color; this.name="B"+index;
-    this.pos={x:0,y:0}; this.placed=false;
-    this.dragging=false; this.dragPixel={x:0,y:0}; this.dragOffset={x:0,y:0};
-    // Tray layout: horizontal and vertical spacing
+    this.shape=shape;
+    this.color=color;
+    this.name="B"+index;
+    this.index=index;
+    this.pos={x:0,y:0};
+    this.placed=false;
+    this.dragging=false;
+    this.dragPixel={x:0,y:0};
+    this.dragOffset={x:0,y:0};
+
     const cols=2, spacingX=130, spacingY=80;
-    this.trayPos={x:TRAY_X+(index%cols)*spacingX, y:70+Math.floor(index/cols)*spacingY};
+    this.trayPos={
+      x:TRAY_X+(index%cols)*spacingX,
+      y:70+Math.floor(index/cols)*spacingY
+    };
   }
+
   normalize(){
     const minX=Math.min(...this.shape.map(c=>c.x));
     const minY=Math.min(...this.shape.map(c=>c.y));
     this.shape=this.shape.map(c=>({x:c.x-minX,y:c.y-minY}));
   }
-  cells(pos=this.pos){ return this.shape.map(c=>({x:c.x+pos.x,y:c.y+pos.y})); }
-  rotate(){ this.shape=this.shape.map(c=>({x:c.y,y:-c.x})); this.normalize(); }
-  flipH(){ this.shape=this.shape.map(c=>({x:-c.x,y:c.y})); this.normalize(); }
-  flipV(){ this.shape=this.shape.map(c=>({x:c.x,y:-c.y})); this.normalize(); }
-  draw(base=this.dragging?this.dragPixel:{x:this.pos.x*CELL,y:this.pos.y*CELL}){
-    ctx.fillStyle=this.color; ctx.strokeStyle="black"; ctx.lineWidth=2;
+
+  cells(pos=this.pos){
+    return this.shape.map(c=>({x:c.x+pos.x,y:c.y+pos.y}));
+  }
+
+  rotate(){
+    this.shape=this.shape.map(c=>({x:c.y,y:-c.x}));
+    this.normalize();
+  }
+
+  flipH(){
+    this.shape=this.shape.map(c=>({x:-c.x,y:c.y}));
+    this.normalize();
+  }
+
+  offBoard(pos=this.pos){
+    return this.cells(pos).some(c=>
+      c.x<0||c.x>=COLS||c.y<0||c.y>=ROWS
+    );
+  }
+
+  getBase(){
+    return this.dragging
+      ? this.dragPixel
+      : this.placed
+        ? {x:this.pos.x*CELL,y:this.pos.y*CELL}
+        : this.trayPos;
+  }
+
+  draw(){
+    const base=this.getBase();
+    ctx.fillStyle=this.color;
+    ctx.strokeStyle="black";
+    ctx.lineWidth=2;
+
     for(const c of this.shape){
       ctx.fillRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
       ctx.strokeRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
+    }
+
+    if(active===this){
+      this.drawButtons(base);
     }
   }
-  drawTray(){
-    const base=this.trayPos;
-    ctx.fillStyle=this.color; ctx.strokeStyle="black"; ctx.lineWidth=2;
-    for(const c of this.shape){
-      ctx.fillRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
-      ctx.strokeRect(base.x+c.x*CELL,base.y+c.y*CELL,CELL,CELL);
-    }
+
+  drawButtons(base){
+    const maxX=Math.max(...this.shape.map(c=>c.x));
+    const cx=base.x+(maxX+1)*CELL-BTN_RADIUS;
+    const cy=base.y+BTN_RADIUS;
+
+    // Rotate button
+    this.drawButton(cx,cy,"⟳");
+
+    // Flip button
+    this.drawButton(cx,cy+BTN_SPACING,"⇋");
+  }
+
+  drawButton(x,y,label){
+    ctx.fillStyle="white";
+    ctx.beginPath();
+    ctx.arc(x,y,BTN_RADIUS,0,Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle="black";
+    ctx.font="14px Arial";
+    ctx.textAlign="center";
+    ctx.textBaseline="middle";
+    ctx.fillText(label,x,y);
+  }
+
+  rotateHit(mx,my){
+    const {x,y}=this.getButtonPos(0);
+    return Math.hypot(mx-x,my-y)<=BTN_RADIUS;
+  }
+
+  flipHit(mx,my){
+    const {x,y}=this.getButtonPos(1);
+    return Math.hypot(mx-x,my-y)<=BTN_RADIUS;
+  }
+
+  getButtonPos(index){
+    const base=this.getBase();
+    const maxX=Math.max(...this.shape.map(c=>c.x));
+    return {
+      x:base.x+(maxX+1)*CELL-BTN_RADIUS,
+      y:base.y+BTN_RADIUS+index*BTN_SPACING
+    };
   }
 }
 
-/* ===================== BLOCKS ===================== */
 const blocks=[
   new Block([{x:0,y:0},{x:0,y:1},{x:0,y:2},{x:0,y:3},{x:1,y:3}],"orange",1),
   new Block([{x:0,y:0},{x:1,y:0},{x:0,y:1},{x:0,y:2},{x:1,y:2}],"teal",2),
@@ -110,14 +164,87 @@ const blocks=[
   new Block([{x:0,y:0},{x:0,y:1},{x:0,y:2},{x:0,y:3},{x:1,y:2}],"gold",8)
 ];
 
-/* ===================== DRAW BOARD ===================== */
+let active=null;
+
+canvas.addEventListener("pointerdown",e=>{
+  const r=canvas.getBoundingClientRect();
+  const mx=e.clientX-r.left,my=e.clientY-r.top;
+
+  if(active){
+    if(active.rotateHit(mx,my)){
+      if(active.placed) active.cells().forEach(c=>board[c.y][c.x]=null);
+      active.rotate();
+      if(active.placed && active.offBoard()) active.placed=false;
+      return;
+    }
+    if(active.flipHit(mx,my)){
+      if(active.placed) active.cells().forEach(c=>board[c.y][c.x]=null);
+      active.flipH();
+      if(active.placed && active.offBoard()) active.placed=false;
+      return;
+    }
+  }
+
+  for(const b of [...blocks].reverse()){
+    const base=b.getBase();
+    for(const c of b.shape){
+      const x=base.x+c.x*CELL,y=base.y+c.y*CELL;
+      if(mx>x&&mx<x+CELL&&my>y&&my<y+CELL){
+        active=b;
+        b.dragging=true;
+        b.dragPixel={x:base.x,y:base.y};
+        b.dragOffset={x:(mx-x)/CELL,y:(my-y)/CELL};
+        if(b.placed){
+          b.cells().forEach(c=>board[c.y][c.x]=null);
+          b.placed=false;
+        }
+        return;
+      }
+    }
+  }
+});
+
+canvas.addEventListener("pointermove",e=>{
+  if(!active||!active.dragging) return;
+  const r=canvas.getBoundingClientRect();
+  active.dragPixel={
+    x:e.clientX-r.left-active.dragOffset.x*CELL,
+    y:e.clientY-r.top-active.dragOffset.y*CELL
+  };
+});
+
+canvas.addEventListener("pointerup",()=>{
+  if(!active||!active.dragging) return;
+
+  const gx=Math.floor(active.dragPixel.x/CELL - active.dragOffset.x);
+  const gy=Math.floor(active.dragPixel.y/CELL - active.dragOffset.y);
+
+  const valid=active.cells({x:gx,y:gy}).every(c=>
+    c.x>=0&&c.x<COLS&&c.y>=0&&c.y<ROWS&&board[c.y][c.x]==null
+  );
+
+  if(valid){
+    active.pos={x:gx,y:gy};
+    active.cells().forEach(c=>board[c.y][c.x]=active.name);
+    active.placed=true;
+  }
+
+  active.dragging=false;
+});
+
 function drawBoard(){
+  ctx.textAlign="left";
+  ctx.textBaseline="top";
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
     ctx.strokeRect(x*CELL,y*CELL,CELL,CELL);
     const v=boardTemplate[y][x];
     if(v!==null){
-      ctx.fillStyle="black"; ctx.font="16px Arial"; ctx.textAlign="left"; ctx.textBaseline="top";
-      ctx.fillText(v,x*CELL+5,y*CELL+5);
+      ctx.fillStyle="black";
+      ctx.font="16px Arial";
+      ctx.fillText(v,x*CELL+5,y*CELL+35);
+    } else {
+      ctx.fillStyle="black";
+      ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
     }
   }
 }
@@ -129,164 +256,27 @@ function highlightToday(){
       ctx.fillRect(x*CELL,y*CELL,CELL,CELL);
 }
 
-function drawPreview(block){
-  if(!block.dragging) return;
-  const gx=Math.round(block.dragPixel.x/CELL-block.dragOffset.x);
-  const gy=Math.round(block.dragPixel.y/CELL-block.dragOffset.y);
-  const valid=block.cells({x:gx,y:gy}).every(c=>
+function drawPreview(b){
+  if(!b.dragging) return;
+  const gx=Math.floor(b.dragPixel.x/CELL-b.dragOffset.x);
+  const gy=Math.floor(b.dragPixel.y/CELL-b.dragOffset.y);
+  const valid=b.cells({x:gx,y:gy}).every(c=>
     c.x>=0&&c.x<COLS&&c.y>=0&&c.y<ROWS&&board[c.y][c.x]==null
   );
   if(!valid) return;
   ctx.fillStyle="rgba(0,255,0,0.35)";
-  for(const c of block.cells({x:gx,y:gy}))
+  for(const c of b.cells({x:gx,y:gy}))
     ctx.fillRect(c.x*CELL,c.y*CELL,CELL,CELL);
 }
 
-/* ===================== INPUT ===================== */
-let active=null;
-
-canvas.addEventListener("pointerdown", e=>{
-  const r=canvas.getBoundingClientRect();
-  const mx=e.clientX-r.left, my=e.clientY-r.top;
-
-  for(const b of [...blocks].reverse()){
-    const base=b.placed ? {x: b.pos.x*CELL, y: b.pos.y*CELL} : b.trayPos;
-    for(const c of b.shape){
-      const x=base.x+c.x*CELL, y=base.y+c.y*CELL;
-      if(mx>x && mx<x+CELL && my>y && my<y+CELL){
-        active=b;
-        b.dragging=true;
-        b.dragPixel={x:base.x,y:base.y};
-        b.dragOffset={x:(mx-x)/CELL, y:(my-y)/CELL};
-
-        if(b.placed){
-          b.cells().forEach(c=>board[c.y][c.x]=null);
-          b.placed=false;
-        }
-        return;
-      }
-    }
-  }
-});
-
-canvas.addEventListener("pointermove", e=>{
-  if(!active || !active.dragging) return;
-  const r=canvas.getBoundingClientRect();
-  active.dragPixel={
-    x:e.clientX-r.left-active.dragOffset.x*CELL,
-    y:e.clientY-r.top-active.dragOffset.y*CELL
-  };
-});
-
-canvas.addEventListener("pointerup", ()=>{
-  if(!active) return;
-  const gx=Math.round(active.dragPixel.x/CELL - active.dragOffset.x);
-  const gy=Math.round(active.dragPixel.y/CELL - active.dragOffset.y);
-  const valid=active.cells({x:gx,y:gy}).every(c=>
-    c.x>=0 && c.x<COLS && c.y>=0 && c.y<ROWS && board[c.y][c.x]==null
-  );
-  if(valid){
-    active.pos={x:gx,y:gy};
-    active.cells().forEach(c=>board[c.y][c.x]=active.name);
-    active.placed=true;
-  }
-  active.dragging=false;
-  active=null;
-});
-
-window.addEventListener("keydown", e=>{
-  if(!active) return;
-  if(e.key==="r") active.rotate();
-  if(e.key==="h") active.flipH();
-});
-
-/* ===================== WIN ===================== */
-function checkWin(){
-  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++)
-    if(boardTemplate[y][x]!=null && board[y][x]==null &&
-       boardTemplate[y][x]!==todayMonth && boardTemplate[y][x]!==todayDay)
-      return false;
-  return true;
-}
-
-/* ===================== SHARE ===================== */
-function shareScore(){
-  const text =
-`Date Puzzle — ${todayMonth} ${todayDay}
-Solved in ${formatTime(endTime-startTime)}
-Streak: ${streak} day${streak===1?"":"s"}`;
-  navigator.clipboard.writeText(text);
-}
-
-/* ===================== LOOP ===================== */
 function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-
   drawBoard();
   highlightToday();
   if(active) drawPreview(active);
-
-  // Instructions box (extended width)
-  ctx.fillStyle="#ffffcc";
-  ctx.fillRect(TRAY_X-10,10,300,50);
-  ctx.strokeStyle="black";
-  ctx.strokeRect(TRAY_X-10,10,300,50);
-  ctx.fillStyle="black"; ctx.font="16px Arial"; ctx.textAlign="left"; ctx.textBaseline="top";
-  ctx.fillText("Click R to rotate and H for horizontal flip", TRAY_X+5, 15);
-
-  // Draw tray and blocks
-  for(const b of blocks){
-    if(!b.placed && !b.dragging) b.drawTray();
-  }
-  for(const b of blocks){
-    if(b.placed || b.dragging) b.draw();
-  }
-
-  ctx.fillStyle="black"; ctx.font="18px Arial";
-  ctx.fillText(`Streak: ${streak}`,TRAY_X,80);
-
-  if(checkWin()){
-    if(!endTime){
-      endTime=Date.now();
-      history[todayKeyStr]=Math.floor((endTime-startTime)/1000);
-      localStorage.setItem("datePuzzleHistory",JSON.stringify(history));
-      streak=calcStreak();
-    }
-
-    ctx.fillStyle="rgba(0,0,0,0.75)";
-    ctx.fillRect(0,0,canvas.width,canvas.height);
-
-    ctx.fillStyle="red"; ctx.font="80px Arial Black"; ctx.textAlign="center";
-    ctx.fillText("YOU WIN!",canvas.width/2,canvas.height/2-60);
-
-    ctx.fillStyle="white"; ctx.font="32px Arial";
-    ctx.fillText(`Solved in ${formatTime(endTime-startTime)}`,canvas.width/2,canvas.height/2-10);
-    ctx.fillText(`Streak: ${streak} days`,canvas.width/2,canvas.height/2+30);
-
-    ctx.fillStyle="#1e90ff";
-    ctx.fillRect(canvas.width/2-120,canvas.height/2+55,240,45);
-    ctx.fillStyle="white";
-    ctx.font="24px Arial";
-    ctx.fillText("Share Score",canvas.width/2,canvas.height/2+85);
-  }
-
+  for(const b of blocks) b.draw();
   requestAnimationFrame(loop);
 }
-
-/* ===================== SHARE CLICK ===================== */
-canvas.addEventListener("click", e=>{
-  if(!endTime) return;
-  const r=canvas.getBoundingClientRect();
-  const x=e.clientX-r.left, y=e.clientY-r.top;
-  if(x>canvas.width/2-120 && x<canvas.width/2+120 &&
-     y>canvas.height/2+55 && y<canvas.height/2+100){
-    shareScore();
-  }
-});
-
-/* ===================== MIDNIGHT RESET ===================== */
-setInterval(()=>{ if(todayKey()!==todayKeyStr) location.reload(); },60000);
-
 loop();
 </script>
 </body>

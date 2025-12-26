@@ -29,7 +29,7 @@ const CELL=60, ROWS=7, COLS=7;
 const BOARD_W=COLS*CELL;
 const BOARD_H=ROWS*CELL;
 const TRAY_Y=BOARD_H+40;
-const TRAY_HEIGHT=280;
+const TRAY_HEIGHT=350;
 
 const canvas=document.getElementById("game");
 const ctx=canvas.getContext("2d");
@@ -128,6 +128,9 @@ blocks[3].rotate(); // pink
 
 /* ===================== INPUT ===================== */
 let active=null, won=false;
+let winTime=null; // Store elapsed time at win
+
+const startTime = Date.now(); // Track game start time
 
 /* ===================== CONFETTI ===================== */
 let confettiParticles=[];
@@ -267,6 +270,7 @@ function loop(){
 
   if(!won&&checkWin()){
     won=true;
+    winTime = Date.now() - startTime; // capture time once
     createConfetti();
   }
 
@@ -276,10 +280,17 @@ function loop(){
     ctx.fillStyle="rgba(0,0,0,0.7)";
     ctx.fillRect(0,0,canvas.width,canvas.height);
     ctx.fillStyle="white";
-    ctx.font="64px Arial Black";
     ctx.textAlign="left";
-    ctx.fillText(todayMonth + " " + todayDay,canvas.width/2 - 200,canvas.height/2 - 70);
-    ctx.fillText("YOU WIN!",canvas.width/2 - 200,canvas.height/2);
+
+    ctx.font="64px Arial Black";
+    ctx.fillText(todayMonth + " " + todayDay,canvas.width/2 - 200,canvas.height/2 - 220);
+    ctx.fillText("YOU WIN!",canvas.width/2 - 200,canvas.height/2 - 150);
+
+    ctx.font="36px Arial Black";
+    const seconds = Math.floor(winTime/1000);
+    const minutes = Math.floor(seconds/60);
+    const remSeconds = seconds % 60;
+    ctx.fillText("Time: " + minutes + "m " + remSeconds + "s",canvas.width/2 - 200,canvas.height/2 - 80);
   }
 
   requestAnimationFrame(loop);
